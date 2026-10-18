@@ -1,11 +1,11 @@
 /**
- * High-performance Binary Min-Heap Priority Queue for Dijkstra and A*.
- * Guarantees O(log n) insertions and extractions, with index tracking for efficient updates.
+ * Custom Binary Min-Heap Priority Queue for Dijkstra and A*.
+ * Provides O(log V) push, pop, and decreaseKey operations via internal index tracking.
  */
 export class MinHeap {
   constructor() {
     this.heap = [];
-    this.nodeIndexMap = new Map(); // nodeId -> index in heap
+    this.nodeIndexMap = new Map(); // id -> index in heap
   }
 
   isEmpty() {
@@ -42,7 +42,6 @@ export class MinHeap {
   }
 
   push(id, priority, data = {}) {
-    // If element already exists, update priority if lower
     if (this.nodeIndexMap.has(id)) {
       const idx = this.nodeIndexMap.get(id);
       if (priority < this.heap[idx].priority) {
@@ -120,9 +119,5 @@ export class MinHeap {
 
   contains(id) {
     return this.nodeIndexMap.has(id);
-  }
-
-  getSnapshot() {
-    return this.heap.map(item => ({ id: item.id, priority: item.priority }));
   }
 }

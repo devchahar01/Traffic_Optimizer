@@ -1,44 +1,6 @@
 import { MinHeap } from './MinHeap';
-
-/**
- * Disjoint Set Union (DSU) helper for Kruskal's MST algorithm.
- */
-class DisjointSetUnion {
-  constructor(elements) {
-    this.parent = new Map();
-    this.rank = new Map();
-    for (const elem of elements) {
-      this.parent.set(elem, elem);
-      this.rank.set(elem, 0);
-    }
-  }
-
-  find(i) {
-    if (this.parent.get(i) === i) return i;
-    const root = this.find(this.parent.get(i));
-    this.parent.set(i, root); // Path compression
-    return root;
-  }
-
-  union(i, j) {
-    const rootI = this.find(i);
-    const rootJ = this.find(j);
-    if (rootI === rootJ) return false;
-
-    const rankI = this.rank.get(rootI);
-    const rankJ = this.rank.get(rootJ);
-
-    if (rankI < rankJ) {
-      this.parent.set(rootI, rootJ);
-    } else if (rankI > rankJ) {
-      this.parent.set(rootJ, rootI);
-    } else {
-      this.parent.set(rootJ, rootI);
-      this.rank.set(rootI, rankI + 1);
-    }
-    return true;
-  }
-}
+import { DisjointSet } from './DisjointSet';
+import { calculateHaversineDistance } from './SpatialIndex';
 
 /**
  * Reconstructs path backwards from previous node pointers.
@@ -48,7 +10,7 @@ function reconstructPath(prev, prevEdge, targetId, sourceId) {
   const edges = [];
   let curr = targetId;
 
-  while (curr !== null) {
+  while (curr !== null && curr !== undefined) {
     path.unshift(curr);
     if (prevEdge.has(curr) && prevEdge.get(curr) !== null) {
       edges.unshift(prevEdge.get(curr));
@@ -60,10 +22,32 @@ function reconstructPath(prev, prevEdge, targetId, sourceId) {
   return { path, edges };
 }
 
+/**
+ * Calculates total physical distance and travel time along path edges.
+ */
+function computePathMetrics(graph, edgeIds) {
+  let travelTimeMinutes = 0;
+  let distanceKm = 0;
+
+  for (const edgeId of edgeIds) {
+    const edge = graph.getEdge(edgeId);
+    if (edge) {
+      travelTimeMinutes += graph.calculateEdgeWeight(edge);
+      distanceKm += edge.distanceKm;
+    }
+  }
+
+  return {
+    travelTimeMinutes: Number(travelTimeMinutes.toFixed(2)),
+    distanceKm: Number(distanceKm.toFixed(2))
+  };
+}
+
 // ==========================================
-// 1. DIJKSTRA'S ALGORITHM GENERATOR
+// 1. DIJKSTRA'S ALGORITHM
 // ==========================================
-export function* dijkstraGenerator(graph, sourceId, targetId) {
+export function runDijkstra(graph, sourceId, targetId) {
+  const startTime = performance.now();
   const dist = new Map();
   const prev = new Map();
   const prevEdge = new Map();
@@ -76,133 +60,89 @@ export function* dijkstraGenerator(graph, sourceId, targetId) {
     prevEdge.set(node.id, null);
   }
 
-  dist.set(sourceId, 0);
-  pq.push(sourceId, 0);
-
-  yield {
-    type: 'START',
-    currentNode: sourceId,
-    visitedNodes: [],
-    frontierQueue: [sourceId],
-    activeEdge: null,
-    currentPath: [sourceId],
-    cost: 0,
-    description: `Dijkstra initialized at Source [${sourceId}]. Distance set to 0.`,
-    done: false
-  };
+  dist.set(sourceId, 0.0);
+  pq.push(sourceId, 0.0);
 
   let targetFound = false;
 
   while (!pq.isEmpty()) {
     const top = pq.pop();
     const u = top.id;
-    const currentCost = top.priority;
+    const currentDist = top.priority;
 
     if (visited.has(u)) continue;
     visited.add(u);
-
-    const { path: tempPath, edges: tempEdges } = reconstructPath(prev, prevEdge, u, sourceId);
-
-    yield {
-      type: 'VISITING',
-      currentNode: u,
-      visitedNodes: Array.from(visited),
-      frontierQueue: pq.getSnapshot().map(i => i.id),
-      activeEdge: prevEdge.get(u),
-      currentPath: tempPath,
-      currentPathEdges: tempEdges,
-      cost: Number(currentCost.toFixed(2)),
-      description: `Popped [${u}] from Min-Heap (Lowest cost: ${currentCost.toFixed(1)}m).`,
-      done: false
-    };
 
     if (u === targetId) {
       targetFound = true;
       break;
     }
 
-    const neighbors = graph.getNeighbors(u);
-    for (const { node, edge, weight } of neighbors) {
-      const v = node.id;
+    for (const neighbor of graph.getNeighbors(u)) {
+      const v = neighbor.targetNodeId;
+      const weight = neighbor.weight;
 
-      if (edge.isBlocked || weight === Infinity) {
-        yield {
-          type: 'BLOCKED',
-          currentNode: u,
-          visitedNodes: Array.from(visited),
-          frontierQueue: pq.getSnapshot().map(i => i.id),
-          activeEdge: edge.id,
-          currentPath: tempPath,
-          currentPathEdges: tempEdges,
-          cost: Number(currentCost.toFixed(2)),
-          description: `Corridor [${u} ↔ ${v}] is BLOCKED / CLOSED. Cannot traverse.`,
-          done: false
-        };
-        continue;
-      }
-
+      if (neighbor.isBlocked || weight === Infinity) continue;
       if (visited.has(v)) continue;
 
-      const alt = currentCost + weight;
+      const alt = currentDist + weight;
       if (alt < dist.get(v)) {
         dist.set(v, alt);
         prev.set(v, u);
-        prevEdge.set(v, edge.id);
+        prevEdge.set(v, neighbor.edgeId);
         pq.push(v, alt);
-
-        yield {
-          type: 'RELAX',
-          currentNode: u,
-          targetNeighbor: v,
-          visitedNodes: Array.from(visited),
-          frontierQueue: pq.getSnapshot().map(i => i.id),
-          activeEdge: edge.id,
-          currentPath: tempPath,
-          currentPathEdges: tempEdges,
-          cost: Number(alt.toFixed(2)),
-          description: `Relaxed edge [${u} ↔ ${v}]. Updated cost to ${alt.toFixed(1)}m.`,
-          done: false
-        };
       }
     }
   }
 
-  if (targetFound) {
-    const { path, edges } = reconstructPath(prev, prevEdge, targetId, sourceId);
-    yield {
-      type: 'PATH_FOUND',
-      currentNode: targetId,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [],
-      activeEdge: null,
-      currentPath: path,
-      currentPathEdges: edges,
-      cost: Number(dist.get(targetId).toFixed(2)),
-      description: `Target [${targetId}] reached! Optimal travel cost: ${dist.get(targetId).toFixed(1)} min.`,
-      done: true,
-      success: true
-    };
-  } else {
-    yield {
-      type: 'NO_PATH',
-      currentNode: targetId,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [],
-      activeEdge: null,
-      currentPath: [],
-      currentPathEdges: [],
-      cost: Infinity,
-      description: `Target [${targetId}] unreachable due to network closures.`,
-      done: true,
+  const executionTimeMs = performance.now() - startTime;
+
+  if (!targetFound || dist.get(targetId) === Infinity) {
+    return {
+      algorithm: "Dijkstra's Algorithm",
+      path: [],
+      pathEdges: [],
+      travelTimeMinutes: Infinity,
+      distanceKm: 0,
+      hops: 0,
+      nodesExplored: visited.size,
+      executionTimeMs: Number(executionTimeMs.toFixed(3)),
       success: false
     };
   }
+
+  const { path, edges } = reconstructPath(prev, prevEdge, targetId, sourceId);
+  const metrics = computePathMetrics(graph, edges);
+
+  return {
+    algorithm: "Dijkstra's Algorithm",
+    path,
+    pathEdges: edges,
+    travelTimeMinutes: metrics.travelTimeMinutes,
+    distanceKm: metrics.distanceKm,
+    hops: Math.max(0, path.length - 1),
+    nodesExplored: visited.size,
+    executionTimeMs: Number(executionTimeMs.toFixed(3)),
+    success: true
+  };
 }
 
 // ==========================================
-// 2. A* SEARCH ALGORITHM GENERATOR
+// 2. A* SEARCH ALGORITHM
 // ==========================================
-export function* aStarGenerator(graph, sourceId, targetId) {
+export function runAStar(graph, sourceId, targetId) {
+  const startTime = performance.now();
+  const targetNode = graph.getNode(targetId);
+
+  // Maximum arterial speed (70 km/h) ensures admissible Haversine heuristic
+  const maxSpeedKmh = 70.0;
+  const heuristic = (nodeId) => {
+    const n = graph.getNode(nodeId);
+    if (!n || !targetNode) return 0;
+    const distKm = calculateHaversineDistance(n.lat, n.lng, targetNode.lat, targetNode.lng);
+    return (distKm / maxSpeedKmh) * 60.0; // Admissible remaining travel time in minutes
+  };
+
   const gScore = new Map();
   const fScore = new Map();
   const prev = new Map();
@@ -217,24 +157,10 @@ export function* aStarGenerator(graph, sourceId, targetId) {
     prevEdge.set(node.id, null);
   }
 
-  const h = (nodeId) => graph.getEuclideanDistance(nodeId, targetId);
-
-  gScore.set(sourceId, 0);
-  const startF = h(sourceId);
+  gScore.set(sourceId, 0.0);
+  const startF = heuristic(sourceId);
   fScore.set(sourceId, startF);
   openSet.push(sourceId, startF);
-
-  yield {
-    type: 'START',
-    currentNode: sourceId,
-    visitedNodes: [],
-    frontierQueue: [sourceId],
-    activeEdge: null,
-    currentPath: [sourceId],
-    cost: 0,
-    description: `A* Search started at [${sourceId}]. Heuristic distance to target: ${startF.toFixed(1)}.`,
-    done: false
-  };
 
   let targetFound = false;
 
@@ -245,245 +171,147 @@ export function* aStarGenerator(graph, sourceId, targetId) {
     if (visited.has(u)) continue;
     visited.add(u);
 
-    const { path: tempPath, edges: tempEdges } = reconstructPath(prev, prevEdge, u, sourceId);
-
-    yield {
-      type: 'VISITING',
-      currentNode: u,
-      visitedNodes: Array.from(visited),
-      frontierQueue: openSet.getSnapshot().map(i => i.id),
-      activeEdge: prevEdge.get(u),
-      currentPath: tempPath,
-      currentPathEdges: tempEdges,
-      cost: Number(gScore.get(u).toFixed(2)),
-      description: `A* popped [${u}] with f(n) = ${top.priority.toFixed(1)} (g=${gScore.get(u).toFixed(1)}, h=${h(u).toFixed(1)}).`,
-      done: false
-    };
-
     if (u === targetId) {
       targetFound = true;
       break;
     }
 
-    const neighbors = graph.getNeighbors(u);
-    for (const { node, edge, weight } of neighbors) {
-      const v = node.id;
+    const currentG = gScore.get(u);
 
-      if (edge.isBlocked || weight === Infinity) continue;
+    for (const neighbor of graph.getNeighbors(u)) {
+      const v = neighbor.targetNodeId;
+      const weight = neighbor.weight;
+
+      if (neighbor.isBlocked || weight === Infinity) continue;
       if (visited.has(v)) continue;
 
-      const tentativeG = gScore.get(u) + weight;
+      const tentativeG = currentG + weight;
       if (tentativeG < gScore.get(v)) {
         gScore.set(v, tentativeG);
         prev.set(v, u);
-        prevEdge.set(v, edge.id);
-        const f = tentativeG + h(v);
+        prevEdge.set(v, neighbor.edgeId);
+
+        const f = tentativeG + heuristic(v);
         fScore.set(v, f);
         openSet.push(v, f);
-
-        yield {
-          type: 'RELAX',
-          currentNode: u,
-          targetNeighbor: v,
-          visitedNodes: Array.from(visited),
-          frontierQueue: openSet.getSnapshot().map(i => i.id),
-          activeEdge: edge.id,
-          currentPath: tempPath,
-          currentPathEdges: tempEdges,
-          cost: Number(tentativeG.toFixed(2)),
-          description: `A* relaxed [${u} ↔ ${v}]: g=${tentativeG.toFixed(1)}, f=${f.toFixed(1)}.`,
-          done: false
-        };
       }
     }
   }
 
-  if (targetFound) {
-    const { path, edges } = reconstructPath(prev, prevEdge, targetId, sourceId);
-    yield {
-      type: 'PATH_FOUND',
-      currentNode: targetId,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [],
-      activeEdge: null,
-      currentPath: path,
-      currentPathEdges: edges,
-      cost: Number(gScore.get(targetId).toFixed(2)),
-      description: `A* goal reached! Evaluated ${visited.size} nodes. Path cost: ${gScore.get(targetId).toFixed(1)}m.`,
-      done: true,
-      success: true
-    };
-  } else {
-    yield {
-      type: 'NO_PATH',
-      currentNode: targetId,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [],
-      activeEdge: null,
-      currentPath: [],
-      currentPathEdges: [],
-      cost: Infinity,
-      description: `A* found no path to [${targetId}].`,
-      done: true,
+  const executionTimeMs = performance.now() - startTime;
+
+  if (!targetFound || gScore.get(targetId) === Infinity) {
+    return {
+      algorithm: "A* Search",
+      path: [],
+      pathEdges: [],
+      travelTimeMinutes: Infinity,
+      distanceKm: 0,
+      hops: 0,
+      nodesExplored: visited.size,
+      executionTimeMs: Number(executionTimeMs.toFixed(3)),
       success: false
     };
   }
+
+  const { path, edges } = reconstructPath(prev, prevEdge, targetId, sourceId);
+  const metrics = computePathMetrics(graph, edges);
+
+  return {
+    algorithm: "A* Search",
+    path,
+    pathEdges: edges,
+    travelTimeMinutes: metrics.travelTimeMinutes,
+    distanceKm: metrics.distanceKm,
+    hops: Math.max(0, path.length - 1),
+    nodesExplored: visited.size,
+    executionTimeMs: Number(executionTimeMs.toFixed(3)),
+    success: true
+  };
 }
 
 // ==========================================
-// 3. BREADTH-FIRST SEARCH (BFS) GENERATOR
+// 3. BREADTH-FIRST SEARCH (BFS)
 // ==========================================
-export function* bfsGenerator(graph, sourceId, targetId) {
+export function runBFS(graph, sourceId, targetId) {
+  const startTime = performance.now();
   const visited = new Set([sourceId]);
-  const queue = [sourceId];
   const prev = new Map([[sourceId, null]]);
   const prevEdge = new Map([[sourceId, null]]);
-
-  yield {
-    type: 'START',
-    currentNode: sourceId,
-    visitedNodes: [sourceId],
-    frontierQueue: [...queue],
-    activeEdge: null,
-    currentPath: [sourceId],
-    cost: 0,
-    description: `BFS initialized at [${sourceId}]. Optimizing for fewest unweighted hops.`,
-    done: false
-  };
+  const queue = [sourceId];
 
   let targetFound = false;
 
   while (queue.length > 0) {
     const u = queue.shift();
 
-    const { path: tempPath, edges: tempEdges } = reconstructPath(prev, prevEdge, u, sourceId);
-
-    yield {
-      type: 'VISITING',
-      currentNode: u,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [...queue],
-      activeEdge: prevEdge.get(u),
-      currentPath: tempPath,
-      currentPathEdges: tempEdges,
-      cost: tempEdges.length,
-      description: `BFS dequeued [${u}]. Level-order expansion.`,
-      done: false
-    };
-
     if (u === targetId) {
       targetFound = true;
       break;
     }
 
-    const neighbors = graph.getNeighbors(u);
-    for (const { node, edge, weight } of neighbors) {
-      const v = node.id;
-      if (edge.isBlocked || weight === Infinity) continue;
+    for (const neighbor of graph.getNeighbors(u)) {
+      const v = neighbor.targetNodeId;
+      if (neighbor.isBlocked || neighbor.weight === Infinity) continue;
 
       if (!visited.has(v)) {
         visited.add(v);
         prev.set(v, u);
-        prevEdge.set(v, edge.id);
+        prevEdge.set(v, neighbor.edgeId);
         queue.push(v);
-
-        yield {
-          type: 'RELAX',
-          currentNode: u,
-          targetNeighbor: v,
-          visitedNodes: Array.from(visited),
-          frontierQueue: [...queue],
-          activeEdge: edge.id,
-          currentPath: tempPath,
-          currentPathEdges: tempEdges,
-          cost: tempEdges.length + 1,
-          description: `BFS queued [${v}] from [${u}].`,
-          done: false
-        };
       }
     }
   }
 
-  if (targetFound) {
-    const { path, edges } = reconstructPath(prev, prevEdge, targetId, sourceId);
-    let totalWeightedCost = 0;
-    for (const eid of edges) {
-      const e = graph.getEdge(eid);
-      if (e) totalWeightedCost += graph.calculateEdgeWeight(e);
-    }
+  const executionTimeMs = performance.now() - startTime;
 
-    yield {
-      type: 'PATH_FOUND',
-      currentNode: targetId,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [],
-      activeEdge: null,
-      currentPath: path,
-      currentPathEdges: edges,
-      cost: Number(totalWeightedCost.toFixed(2)),
-      description: `BFS reached target in ${edges.length} hops (${totalWeightedCost.toFixed(1)} mins).`,
-      done: true,
-      success: true
-    };
-  } else {
-    yield {
-      type: 'NO_PATH',
-      currentNode: targetId,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [],
-      activeEdge: null,
-      currentPath: [],
-      currentPathEdges: [],
-      cost: Infinity,
-      description: `BFS found no feasible route to [${targetId}].`,
-      done: true,
+  if (!targetFound) {
+    return {
+      algorithm: "Breadth-First Search (BFS)",
+      path: [],
+      pathEdges: [],
+      travelTimeMinutes: Infinity,
+      distanceKm: 0,
+      hops: 0,
+      nodesExplored: visited.size,
+      executionTimeMs: Number(executionTimeMs.toFixed(3)),
       success: false
     };
   }
+
+  const { path, edges } = reconstructPath(prev, prevEdge, targetId, sourceId);
+  const metrics = computePathMetrics(graph, edges);
+
+  return {
+    algorithm: "Breadth-First Search (BFS)",
+    path,
+    pathEdges: edges,
+    travelTimeMinutes: metrics.travelTimeMinutes,
+    distanceKm: metrics.distanceKm,
+    hops: Math.max(0, path.length - 1),
+    nodesExplored: visited.size,
+    executionTimeMs: Number(executionTimeMs.toFixed(3)),
+    success: true
+  };
 }
 
 // ==========================================
-// 4. DEPTH-FIRST SEARCH (DFS) GENERATOR
+// 4. DEPTH-FIRST SEARCH (DFS)
 // ==========================================
-export function* dfsGenerator(graph, sourceId, targetId) {
+export function runDFS(graph, sourceId, targetId) {
+  const startTime = performance.now();
   const visited = new Set();
-  const stack = [sourceId];
   const prev = new Map([[sourceId, null]]);
   const prevEdge = new Map([[sourceId, null]]);
-
-  yield {
-    type: 'START',
-    currentNode: sourceId,
-    visitedNodes: [],
-    frontierQueue: [...stack],
-    activeEdge: null,
-    currentPath: [sourceId],
-    cost: 0,
-    description: `DFS started at [${sourceId}] using LIFO Stack.`,
-    done: false
-  };
+  const stack = [sourceId];
 
   let targetFound = false;
 
   while (stack.length > 0) {
     const u = stack.pop();
+
     if (visited.has(u)) continue;
     visited.add(u);
-
-    const { path: tempPath, edges: tempEdges } = reconstructPath(prev, prevEdge, u, sourceId);
-
-    yield {
-      type: 'VISITING',
-      currentNode: u,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [...stack],
-      activeEdge: prevEdge.get(u),
-      currentPath: tempPath,
-      currentPathEdges: tempEdges,
-      cost: tempEdges.length,
-      description: `DFS popped [${u}] from Stack. Diving deep along branch.`,
-      done: false
-    };
 
     if (u === targetId) {
       targetFound = true;
@@ -492,173 +320,91 @@ export function* dfsGenerator(graph, sourceId, targetId) {
 
     const neighbors = graph.getNeighbors(u);
     for (let i = neighbors.length - 1; i >= 0; i--) {
-      const { node, edge, weight } = neighbors[i];
-      const v = node.id;
-      if (edge.isBlocked || weight === Infinity) continue;
+      const neighbor = neighbors[i];
+      const v = neighbor.targetNodeId;
+      if (neighbor.isBlocked || neighbor.weight === Infinity) continue;
 
       if (!visited.has(v)) {
         prev.set(v, u);
-        prevEdge.set(v, edge.id);
+        prevEdge.set(v, neighbor.edgeId);
         stack.push(v);
-
-        yield {
-          type: 'RELAX',
-          currentNode: u,
-          targetNeighbor: v,
-          visitedNodes: Array.from(visited),
-          frontierQueue: [...stack],
-          activeEdge: edge.id,
-          currentPath: tempPath,
-          currentPathEdges: tempEdges,
-          cost: tempEdges.length + 1,
-          description: `DFS pushed neighbor [${v}] onto stack.`,
-          done: false
-        };
       }
     }
   }
 
-  if (targetFound) {
-    const { path, edges } = reconstructPath(prev, prevEdge, targetId, sourceId);
-    let totalCost = 0;
-    for (const eid of edges) {
-      const e = graph.getEdge(eid);
-      if (e) totalCost += graph.calculateEdgeWeight(e);
-    }
+  const executionTimeMs = performance.now() - startTime;
 
-    yield {
-      type: 'PATH_FOUND',
-      currentNode: targetId,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [],
-      activeEdge: null,
-      currentPath: path,
-      currentPathEdges: edges,
-      cost: Number(totalCost.toFixed(2)),
-      description: `DFS reached target. Meandering route with ${edges.length} hops (${totalCost.toFixed(1)} mins).`,
-      done: true,
-      success: true
-    };
-  } else {
-    yield {
-      type: 'NO_PATH',
-      currentNode: targetId,
-      visitedNodes: Array.from(visited),
-      frontierQueue: [],
-      activeEdge: null,
-      currentPath: [],
-      currentPathEdges: [],
-      cost: Infinity,
-      description: `DFS found no route to [${targetId}].`,
-      done: true,
+  if (!targetFound) {
+    return {
+      algorithm: "Depth-First Search (DFS)",
+      path: [],
+      pathEdges: [],
+      travelTimeMinutes: Infinity,
+      distanceKm: 0,
+      hops: 0,
+      nodesExplored: visited.size,
+      executionTimeMs: Number(executionTimeMs.toFixed(3)),
       success: false
     };
   }
-}
 
-// ==========================================
-// 5. KRUSKAL'S MST GENERATOR
-// ==========================================
-export function* kruskalGenerator(graph) {
-  const nodes = graph.getAllNodes();
-  const unblockedEdges = graph.getAllEdges()
-    .filter(e => !e.isBlocked)
-    .sort((a, b) => a.baseWeight - b.baseWeight);
+  const { path, edges } = reconstructPath(prev, prevEdge, targetId, sourceId);
+  const metrics = computePathMetrics(graph, edges);
 
-  const dsu = new DisjointSetUnion(nodes.map(n => n.id));
-  const mstEdges = [];
-  let totalCost = 0;
-
-  yield {
-    type: 'START',
-    currentNode: null,
-    visitedNodes: [],
-    frontierQueue: [],
-    activeEdge: null,
-    mstEdges: [],
-    cost: 0,
-    description: `Kruskal's MST initialized. Sorted ${unblockedEdges.length} roads by base weight.`,
-    done: false
-  };
-
-  for (const edge of unblockedEdges) {
-    const u = edge.from;
-    const v = edge.to;
-
-    if (dsu.find(u) !== dsu.find(v)) {
-      dsu.union(u, v);
-      mstEdges.push(edge.id);
-      totalCost += edge.baseWeight;
-
-      yield {
-        type: 'MST_EDGE',
-        currentNode: u,
-        targetNeighbor: v,
-        activeEdge: edge.id,
-        mstEdges: [...mstEdges],
-        cost: Number(totalCost.toFixed(2)),
-        description: `Accepted edge [${u} ↔ ${v}] into MST. No cycle created.`,
-        done: false
-      };
-
-      if (mstEdges.length === nodes.length - 1) break;
-    } else {
-      yield {
-        type: 'MST_CYCLE',
-        currentNode: u,
-        targetNeighbor: v,
-        activeEdge: edge.id,
-        mstEdges: [...mstEdges],
-        cost: Number(totalCost.toFixed(2)),
-        description: `Rejected [${u} ↔ ${v}]. Cycle detected in same DSU set.`,
-        done: false
-      };
-    }
-  }
-
-  yield {
-    type: 'MST_COMPLETE',
-    currentNode: null,
-    activeEdge: null,
-    mstEdges: [...mstEdges],
-    cost: Number(totalCost.toFixed(2)),
-    description: `MST Complete! Connected all sectors using ${mstEdges.length} roads (Total length: ${totalCost.toFixed(1)} km).`,
-    done: true,
+  return {
+    algorithm: "Depth-First Search (DFS)",
+    path,
+    pathEdges: edges,
+    travelTimeMinutes: metrics.travelTimeMinutes,
+    distanceKm: metrics.distanceKm,
+    hops: Math.max(0, path.length - 1),
+    nodesExplored: visited.size,
+    executionTimeMs: Number(executionTimeMs.toFixed(3)),
     success: true
   };
 }
 
 // ==========================================
-// INSTANT EXECUTION RUNNER
+// 5. KRUSKAL'S MINIMUM SPANNING TREE (MST)
 // ==========================================
-export function runAlgorithmInstant(generatorFn, graph, sourceId, targetId) {
-  const t0 = performance.now();
-  const gen = generatorFn(graph, sourceId, targetId);
-  const allSteps = [];
-  let finalResult = null;
+export function runKruskalMST(graph) {
+  const startTime = performance.now();
+  const nodes = graph.getAllNodes();
+  const unblockedEdges = graph.getAllEdges()
+    .filter(e => !e.isBlocked)
+    .sort((a, b) => a.distanceKm - b.distanceKm);
 
-  for (const step of gen) {
-    allSteps.push(step);
-    if (step.done) {
-      finalResult = step;
+  const dsu = new DisjointSet(nodes.map(n => n.id));
+  const mstEdges = [];
+  const rejectedEdges = [];
+  let totalDistanceKm = 0;
+  let totalTravelTimeMinutes = 0;
+
+  for (const edge of unblockedEdges) {
+    if (dsu.union(edge.from, edge.to)) {
+      mstEdges.push(edge.id);
+      totalDistanceKm += edge.distanceKm;
+      totalTravelTimeMinutes += graph.calculateEdgeWeight(edge);
+
+      if (mstEdges.length === nodes.length - 1) {
+        break; // Full spanning tree achieved
+      }
+    } else {
+      rejectedEdges.push(edge.id); // Cycle prevented
     }
   }
 
-  const executionTimeMs = Number((performance.now() - t0).toFixed(3));
-
-  let pathDistance = 0;
-  if (finalResult && finalResult.currentPathEdges) {
-    for (const eid of finalResult.currentPathEdges) {
-      const e = graph.getEdge(eid);
-      if (e) pathDistance += e.length;
-    }
-  }
+  const executionTimeMs = performance.now() - startTime;
+  const isConnected = dsu.getComponentCount() === 1;
 
   return {
-    ...finalResult,
-    executionTimeMs,
-    pathDistance: Number(pathDistance.toFixed(2)),
-    nodesExplored: finalResult?.visitedNodes?.length || 0,
-    allSteps
+    algorithm: "Kruskal's Algorithm (MST)",
+    mstEdges,
+    rejectedEdges,
+    totalDistanceKm: Number(totalDistanceKm.toFixed(2)),
+    totalTravelTimeMinutes: Number(totalTravelTimeMinutes.toFixed(2)),
+    edgesCount: mstEdges.length,
+    isConnected,
+    executionTimeMs: Number(executionTimeMs.toFixed(3))
   };
 }
