@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-cyber-950 text-slate-100 font-sans;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom Glassmorphism Panels */
+.glass-panel {
+  background: rgba(12, 18, 34, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+}
+
+.glass-panel-elevated {
+  background: rgba(17, 26, 51, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(0, 240, 255, 0.18);
+  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.55), 0 0 15px rgba(0, 240, 255, 0.08);
+}
+
+.glass-panel-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.glass-panel-hover:hover {
+  border-color: rgba(0, 240, 255, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 240, 255, 0.12);
+}
+
+/* Neon Glow Accents */
+.neon-glow-cyan {
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5), 0 0 20px rgba(0, 240, 255, 0.3);
+}
+
+.neon-glow-emerald {
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.5), 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+.neon-glow-rose {
+  text-shadow: 0 0 10px rgba(244, 63, 94, 0.5), 0 0 20px rgba(244, 63, 94, 0.3);
+}
+
+.neon-border-cyan {
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(12, 18, 34, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 240, 255, 0.4);
+}
+
+/* Pulse Badge */
+@keyframes soft-ping {
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.35); opacity: 0.2; }
+  100% { transform: scale(1); opacity: 0.8; }
+}
+
+.animate-soft-ping {
+  animation: soft-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
