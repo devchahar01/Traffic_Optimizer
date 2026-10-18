@@ -1,6 +1,5 @@
 import { MinHeap } from './MinHeap';
 import { DisjointSet } from './DisjointSet';
-import { calculateHaversineDistance } from './SpatialIndex';
 
 /**
  * Reconstructs path backwards from previous node pointers.
@@ -134,12 +133,15 @@ export function runAStar(graph, sourceId, targetId) {
   const startTime = performance.now();
   const targetNode = graph.getNode(targetId);
 
-  // Maximum arterial speed (70 km/h) ensures admissible Haversine heuristic
-  const maxSpeedKmh = 70.0;
+  // Maximum network speed (90 km/h) ensures strictly admissible Euclidean heuristic
+  const maxSpeedKmh = 90.0;
   const heuristic = (nodeId) => {
     const n = graph.getNode(nodeId);
     if (!n || !targetNode) return 0;
-    const distKm = calculateHaversineDistance(n.lat, n.lng, targetNode.lat, targetNode.lng);
+    const dx = n.x - targetNode.x;
+    const dy = n.y - targetNode.y;
+    // Scale: 100 pixels ≈ 7.5 km
+    const distKm = (Math.sqrt(dx * dx + dy * dy) / 100) * 7.5;
     return (distKm / maxSpeedKmh) * 60.0; // Admissible remaining travel time in minutes
   };
 

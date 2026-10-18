@@ -84,3 +84,23 @@
 .animate-soft-ping {
   animation: soft-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
+
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+.animate-flow-dash {
+  animation: flow-dash 1.2s linear infinite;
+}
+
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 10s linear infinite;
+}

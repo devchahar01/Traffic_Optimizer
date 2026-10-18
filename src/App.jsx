@@ -1,23 +1,23 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Graph } from './engine/Graph';
-import { SpatialIndex } from './engine/SpatialIndex';
 import { 
   runDijkstra, runAStar, runBFS, runDFS, runKruskalMST 
 } from './engine/algorithms';
 
-import MapContainer from './components/MapContainer';
+import GraphCanvas from './components/GraphCanvas';
 import ControlPanel from './components/ControlPanel';
 import MetricsPanel from './components/MetricsPanel';
 import AlgorithmModal from './components/AlgorithmModal';
 
 export default function App() {
-  // 1. GRAPH & SPATIAL INDEX STATE
+  // 1. GRAPH STATE
   const [graph, setGraph] = useState(() => Graph.createDefaultUrbanGrid());
-  const [sourceId, setSourceId] = useState('INT_0_0');
-  const [destinationId, setDestinationId] = useState('INT_4_4');
+  const [sourceId, setSourceId] = useState('A1');
+  const [destinationId, setDestinationId] = useState('C8');
   const [algorithm, setAlgorithm] = useState('dijkstra');
   const [trafficMultiplier, setTrafficMultiplier] = useState(1.0);
-  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState('e_B1_B2');
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
 
   // 2. MODES & MODALS
   const [isMstMode, setIsMstMode] = useState(false);
@@ -25,11 +25,6 @@ export default function App() {
 
   // 3. TELEMETRY RESULT
   const [telemetryResult, setTelemetryResult] = useState(null);
-
-  // Spatial Index (QuadTree) for O(log N) lat/lng node snapping
-  const spatialIndex = useMemo(() => {
-    return SpatialIndex.fromNodes(graph.getAllNodes());
-  }, [graph]);
 
   // 4. RUN SIMULATION / ROUTE CALCULATION
   const computeRoute = useCallback((src = sourceId, dst = destinationId, algo = algorithm, g = graph, mst = isMstMode) => {
@@ -75,8 +70,15 @@ export default function App() {
     computeRoute();
   }, [computeRoute]);
 
+  // Trigger state update
+  const forceUpdate = () => {
+    // Clone or re-reference graph to trigger React re-renders
+    setGraph(Object.assign(Object.create(Object.getPrototypeOf(graph)), graph));
+  };
+
   // 5. INTERACTION HANDLERS
   const handleSelectNode = (clickedNodeId) => {
+    setSelectedNodeId(clickedNodeId);
     if (!sourceId || (sourceId && destinationId && clickedNodeId !== sourceId)) {
       setDestinationId(clickedNodeId);
       computeRoute(sourceId, clickedNodeId, algorithm, graph, isMstMode);
@@ -98,16 +100,62 @@ export default function App() {
     for (const edge of graph.getAllEdges()) {
       graph.setTrafficMultiplier(edge.id, multiplier);
     }
+    forceUpdate();
+    computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
+  };
+
+  const handleUpdateEdge = (edgeId, updates) => {
+    graph.updateEdge(edgeId, updates);
+    forceUpdate();
     computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
   };
 
   const handleToggleBlockEdge = (edgeId) => {
     graph.toggleRoadBlock(edgeId);
+    forceUpdate();
+    computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
+  };
+
+  const handleAddNode = (id, label, x, y, type) => {
+    graph.addNode(id, label, x, y, type);
+    forceUpdate();
+    computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
+  };
+
+  const handleDeleteNode = (nodeId) => {
+    graph.removeNode(nodeId);
+    if (sourceId === nodeId) {
+      const remaining = graph.getAllNodes();
+      setSourceId(remaining[0]?.id || null);
+    }
+    if (destinationId === nodeId) {
+      const remaining = graph.getAllNodes();
+      setDestinationId(remaining[1]?.id || remaining[0]?.id || null);
+    }
+    forceUpdate();
+    computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
+  };
+
+  const handleAddEdge = (fromId, toId, options) => {
+    const edge = graph.addEdge(fromId, toId, options);
+    if (edge) {
+      setSelectedEdgeId(edge.id);
+    }
+    forceUpdate();
+    computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
+  };
+
+  const handleDeleteEdge = (edgeId) => {
+    graph.removeEdge(edgeId);
+    if (selectedEdgeId === edgeId) {
+      setSelectedEdgeId(null);
+    }
+    forceUpdate();
     computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
   };
 
   const handleSimulateAccident = () => {
-    // Pick a critical road along the active path to simulate an accident
+    // Pick an active corridor on the current route to block
     let targetEdgeId = null;
     if (telemetryResult?.pathEdges?.length > 0) {
       const unblocked = telemetryResult.pathEdges.filter(eid => {
@@ -129,22 +177,27 @@ export default function App() {
     if (targetEdgeId) {
       graph.toggleRoadBlock(targetEdgeId);
       setSelectedEdgeId(targetEdgeId);
+      forceUpdate();
       computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
     }
   };
 
   const handleClearAllBlocks = () => {
     graph.clearAllBlocks();
+    forceUpdate();
     computeRoute(sourceId, destinationId, algorithm, graph, isMstMode);
   };
 
   const handleResetNetwork = () => {
     const freshGraph = Graph.createDefaultUrbanGrid();
     setGraph(freshGraph);
+    setSourceId('A1');
+    setDestinationId('C8');
     setTrafficMultiplier(1.0);
-    setSelectedEdgeId(null);
+    setSelectedEdgeId('e_B1_B2');
+    setSelectedNodeId(null);
     setIsMstMode(false);
-    computeRoute(sourceId, destinationId, algorithm, freshGraph, false);
+    computeRoute('A1', 'C8', algorithm, freshGraph, false);
   };
 
   const allNodes = graph.getAllNodes();
@@ -152,7 +205,7 @@ export default function App() {
 
   return (
     <div className="w-screen h-screen flex bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      {/* 1. LEFT DISPATCH CONTROL PANEL */}
+      {/* 1. LEFT GRAPH & TRAFFIC CONTROL PANEL */}
       <ControlPanel
         nodes={allNodes}
         edges={allEdges}
@@ -176,7 +229,13 @@ export default function App() {
         trafficMultiplier={trafficMultiplier}
         onChangeTrafficMultiplier={handleChangeTrafficMultiplier}
         selectedEdgeId={selectedEdgeId}
+        onSelectEdge={(eid) => setSelectedEdgeId(eid)}
         onToggleBlockEdge={handleToggleBlockEdge}
+        onUpdateEdge={handleUpdateEdge}
+        onAddEdge={handleAddEdge}
+        onDeleteEdge={handleDeleteEdge}
+        onAddNode={handleAddNode}
+        onDeleteNode={handleDeleteNode}
         onSimulateAccident={handleSimulateAccident}
         onClearAllBlocks={handleClearAllBlocks}
         onResetNetwork={handleResetNetwork}
@@ -189,11 +248,10 @@ export default function App() {
         }}
       />
 
-      {/* 2. LEAFLET GIS MAP CONTAINER */}
+      {/* 2. MAIN GRAPH TOPOLOGY CANVAS (No Map!) */}
       <div className="flex-1 h-full relative">
-        <MapContainer
+        <GraphCanvas
           graph={graph}
-          spatialIndex={spatialIndex}
           sourceId={sourceId}
           destinationId={destinationId}
           activePath={telemetryResult?.path || []}
@@ -201,21 +259,23 @@ export default function App() {
           mstEdges={telemetryResult?.mstEdges || []}
           isMstMode={isMstMode}
           selectedEdgeId={selectedEdgeId}
+          selectedNodeId={selectedNodeId}
           onSelectNode={handleSelectNode}
           onSelectEdge={(eid) => setSelectedEdgeId(eid)}
+          onToggleBlockEdge={handleToggleBlockEdge}
         />
 
         {/* 3. EMPIRICAL TELEMETRY PANEL */}
         <MetricsPanel
           result={telemetryResult}
           totalNodesCount={allNodes.length}
-          algorithmName={isMstMode ? "Kruskal's MST" : telemetryResult?.algorithm || algorithm.toUpperCase()}
+          algorithmName={isMstMode ? "Kruskal's MST (DSU)" : telemetryResult?.algorithm || algorithm.toUpperCase()}
           sourceId={sourceId}
           destinationId={destinationId}
         />
       </div>
 
-      {/* 4. ALGORITHM COMPARATOR MODAL */}
+      {/* 4. MULTI-ALGORITHM BENCHMARK & VIVA MODAL */}
       <AlgorithmModal
         isOpen={isComparatorOpen}
         onClose={() => setIsComparatorOpen(false)}
